@@ -1,0 +1,22 @@
+{
+    "cielo": {
+      "sftp": {
+        "host": "sftp.cielo.com.br",
+        "port": 22,
+        "username": "SEU_USUARIO_SFTP_CIELO",
+        "password": "SUA_SENHA_SFTP_CIELO",
+        "remoteDir": "/extratos",
+        "localDownloadDir": "/tmp/cielo_edi_downloads"
+      }
+    },
+    "stone": {
+      "sftp": {
+        "host": "sftp.stone.com.br",
+        "port": 22,
+        "username": "SEU_USUARIO_SFTP_STONE",
+        "password": "SUA_SENHA_SFTP_STONE",
+        "remoteDir": "/extratos",
+        "localDownloadDir": "/tmp/stone_edi_downloads"
+      }
+    }
+  }
