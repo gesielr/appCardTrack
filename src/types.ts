@@ -14,7 +14,7 @@ export type RootStackParamList = {
 export type TabParamList = {
   Home: undefined; // Aba Home, mostra o Dashboard
   Pagamentos: undefined; // Aba de Pagamentos
-  Transacoes: undefined; // Aba de Transações
+  Transacoes: { conciliationFileId: string } | undefined; // Aba de Transações com parâmetro opcional
   Conciliacao: undefined; // Nova aba de Conciliação Bancária
   // Se uma aba precisar de parâmetros, defina-os aqui
 };

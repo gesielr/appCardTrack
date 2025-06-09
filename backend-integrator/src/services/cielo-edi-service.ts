@@ -1,111 +1,172 @@
-// src/services/cielo-edi-service.ts
-import { SftpHandler } from '../utils/sftp-client';
-import { supabase } from '../utils/supabase-client';
-import fs from 'fs/promises';
-import path from 'path';
-import { parseCieloEDIFile } from './edi-parser'; // Vamos criar isso em seguida
+// backend-integrator/src/services/cielo-edi-service.ts
+// Define a type for SFTP files (local only)
+type SFTPFile = { name: string; [key: string]: any };
 
-interface CieloConfig {
-  sftp: {
+import { SFTPClient } from '../utils/sftp-client';
+import { supabase } from '../utils/supabase-client';
+import { parseCieloEDIFile } from './edi-parser';
+import { NormalizedTransaction } from '../models/transaction';
+import { FileMetadata } from '../models/file-metadata';
+import * as config from 'config';
+
+export class CieloEdiService {
+  private client: SFTPClient;
+  private config: {
     host: string;
     port: number;
     username: string;
-    password?: string;
-    remoteDir: string;
-    localDownloadDir: string;
+    password: string;
+    remotePath: string;
   };
-}
 
-export class CieloEdiService {
-  private sftpHandler: SftpHandler;
-  private config: CieloConfig;
-
-  constructor(config: CieloConfig) {
-    this.sftpHandler = new SftpHandler();
-    this.config = config;
+  constructor(userId?: string) {
+    this.client = new SFTPClient();
+    
+    // Se userId for fornecido, buscar credenciais específicas do usuário
+    if (userId) {
+      // Implementar lógica para buscar credenciais do usuário
+      // Por enquanto, usar configuração global
+    }
+    
+    this.config = {
+      host: config.get('cielo.sftp.host'),
+      port: config.get('cielo.sftp.port'),
+      username: config.get('cielo.sftp.username'),
+      password: config.get('cielo.sftp.password'),
+      remotePath: config.get('cielo.sftp.remotePath'),
+    };
   }
 
-  async processNewFiles(): Promise<void> {
-    const { sftp: sftpConfig } = this.config;
-    const { remoteDir, localDownloadDir } = sftpConfig;
-
+  async connect() {
     try {
-      await this.sftpHandler.connect(sftpConfig);
-      const files = await this.sftpHandler.listFiles(remoteDir);
-
-      for (const fileInfo of files) {
-        // Filtra apenas arquivos EDI e evita diretórios
-        if (fileInfo.type === '-' && fileInfo.name.endsWith('.edi')) {
-          const remoteFilePath = path.join(remoteDir, fileInfo.name);
-          const localFilePath = path.join(localDownloadDir, fileInfo.name);
-
-          console.log(`Processando arquivo: ${fileInfo.name}`);
-
-          // 1. Baixar o arquivo
-          await this.sftpHandler.downloadFile(remoteFilePath, localFilePath);
-
-          // 2. Registrar o arquivo no Supabase (conciliation_files)
-          const { data: fileRecord, error: fileError } = await supabase
-            .from('conciliation_files')
-            .insert({
-              user_id: 'SEU_USER_ID_ADMIN', // ID de um usuário admin ou sistema para rastreio
-              filename: fileInfo.name,
-              original_filename: fileInfo.name,
-              format: 'EDI_CIELO',
-              source: 'cielo',
-              storage_path: localFilePath, // Ou um caminho no Supabase Storage se você subir o raw file
-              status: 'processing',
-            })
-            .select()
-            .single();
-
-          if (fileError) {
-            console.error(`Erro ao registrar arquivo no Supabase: ${fileError.message}`);
-            continue; // Pula para o próximo arquivo
-          }
-
-          // 3. Parsear o arquivo e inserir transações
-          try {
-            const rawFileContent = await fs.readFile(localFilePath, 'utf-8');
-            const parsedTransactions = parseCieloEDIFile(rawFileContent, fileRecord.id); // Passa o file_id
-            
-            // Inserir transações em lotes para melhor performance
-            const { error: transactionsError } = await supabase
-              .from('transactions')
-              .insert(parsedTransactions);
-
-            if (transactionsError) {
-              throw new Error(`Erro ao inserir transações: ${transactionsError.message}`);
-            }
-
-            // 4. Atualizar status do arquivo para 'completed'
-            await supabase
-              .from('conciliation_files')
-              .update({ status: 'completed', processed_date: new Date(), transaction_count: parsedTransactions.length })
-              .eq('id', fileRecord.id);
-
-            // 5. Opcional: Deletar arquivo do SFTP ou movê-lo para um diretório de "processados"
-            // await this.sftpHandler.deleteFile(remoteFilePath);
-            
-            // 6. Opcional: Deletar arquivo local após processamento
-            await fs.unlink(localFilePath);
-
-            console.log(`Arquivo ${fileInfo.name} processado com sucesso.`);
-
-          } catch (parseError) {
-            console.error(`Erro ao parsear/processar ${fileInfo.name}: ${parseError.message}`);
-            await supabase
-              .from('conciliation_files')
-              .update({ status: 'error', processed_date: new Date() })
-              .eq('id', fileRecord.id);
-            // Não deleta o arquivo local para permitir depuração
-          }
-        }
-      }
+      await this.client.connect(this.config);
+      console.log('Connected to Cielo SFTP');
+      return true;
     } catch (error) {
-      console.error(`Erro geral no serviço Cielo EDI: ${error.message}`);
-    } finally {
-      await this.sftpHandler.disconnect();
+      console.error('Failed to connect to Cielo SFTP:', error);
+      return false;
+    }
+  }
+
+  async disconnect() {
+    try {
+      await this.client.disconnect();
+      console.log('Disconnected from Cielo SFTP');
+    } catch (error) {
+      console.error('Failed to disconnect from Cielo SFTP:', error);
+    }
+  }
+
+  public async fetchFiles(userId: string): Promise<void> {
+    try {
+      if (!await this.connect()) {
+        throw new Error('Failed to connect to SFTP server');
+      }
+      
+      // Listar arquivos no diretório remoto
+      const files: SFTPFile[] = await this.client.list(this.config.remotePath);
+      console.log(`Found ${files.length} files on Cielo SFTP`);
+      
+      // Filtrar apenas arquivos EDI não processados
+      const ediFiles = files.filter(file => 
+        file.name.endsWith('.txt') || file.name.endsWith('.ret')
+      );
+      
+      // Verificar quais arquivos já foram processados
+      for (const file of ediFiles) {
+        const { data } = await supabase
+          .from('conciliation_files')
+          .select('id')
+          .eq('file_name', file.name)
+          .eq('user_id', userId)
+          .eq('operator', 'cielo')
+          .single();
+        
+        // Se o arquivo já foi processado, pular
+        if (data) {
+          console.log(`File ${file.name} already processed, skipping`);
+          continue;
+        }
+        
+        // Baixar e processar o arquivo
+        console.log(`Downloading file ${file.name}`);
+        const fileContent = await this.client.get(`${this.config.remotePath}/${file.name}`);
+        
+        // Processar o arquivo
+        await this.processFile(fileContent.toString(), file.name, userId);
+        
+        console.log(`Successfully processed file ${file.name}`);
+      }
+      
+      await this.client.disconnect();
+    } catch (error) {
+      console.error('Error fetching Cielo files:', error);
+    }
+  }
+
+  async processFile(fileContent: string, fileName: string, userId: string) {
+    let fileRecord: any = undefined;
+    try {
+      // Registrar arquivo na tabela conciliation_files
+      const { data, error: fileError } = await supabase
+        .from('conciliation_files')
+        .insert({
+          file_name: fileName,
+          user_id: userId,
+          operator: 'cielo',
+          status: 'processing',
+        })
+        .select()
+        .single();
+      fileRecord = data;
+
+      if (fileError) throw fileError;
+
+      // Parsear o arquivo
+      const transactions: NormalizedTransaction[] = parseCieloEDIFile(fileContent, fileName);
+
+      // Inserir transações no banco
+      const { error: transactionError } = await supabase
+        .from('transactions')
+        .insert(
+          transactions.map(t => ({
+            ...t,
+            user_id: userId,
+            conciliation_file_id: fileRecord.id,
+            operator_source: 'cielo'
+          }))
+        );
+
+      if (transactionError) throw transactionError;
+
+      // Atualizar status do arquivo
+      await supabase
+        .from('conciliation_files')
+        .update({ 
+          status: 'completed', 
+          processed_at: new Date().toISOString(),
+          transaction_count: transactions.length
+        })
+        .eq('id', fileRecord.id);
+
+      return { success: true, count: transactions.length };
+    } catch (error) {
+      console.error('Error processing Cielo file:', error);
+      
+      // Atualizar status do arquivo para erro
+      if (fileRecord?.id) {
+        let errorMessage = 'Unknown error';
+        if (error instanceof Error) {
+          errorMessage = error.message;
+        }
+        await supabase
+          .from('conciliation_files')
+          .update({ 
+            status: 'error', 
+            error_message: errorMessage
+          })
+          .eq('id', fileRecord.id);
+      }
     }
   }
 }

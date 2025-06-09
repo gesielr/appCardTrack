@@ -6,7 +6,7 @@ async function runDailyCieloJob() {
   console.log('Iniciando job diário de extratos Cielo...');
   const cieloConfig = config.get('cielo') as any; // Carrega a configuração da Cielo
   const cieloService = new CieloEdiService(cieloConfig);
-  await cieloService.processNewFiles();
+  await cieloService.fetchFiles('admin');
   console.log('Job diário de extratos Cielo finalizado.');
 }
 

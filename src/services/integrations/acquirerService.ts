@@ -1,125 +1,189 @@
-import { Transaction } from '../../types';
-import axios from 'axios';
+// src/services/integrations/acquirerService.ts
+import { supabase } from '../../lib/supabase';
+import * as SecureStore from 'expo-secure-store';
 
-interface AcquirerConfig {
-  merchantId: string;
-  apiKey: string;
-  environment: 'sandbox' | 'production';
-}
+// Tipos
+export type OperatorCredentials = {
+  username: string;
+  password: string;
+  merchantId?: string;
+  apiKey?: string;
+};
 
-interface TransactionResponse {
-  id: string;
-  amount: number;
-  status: string;
-  paymentMethod: string;
-  installments: number;
-  tax: number;
-  created_at: string;
-  updatedAt: string;
-}
+export type OperatorSettings = {
+  enabled: boolean;
+  credentials?: OperatorCredentials;
+  lastSync?: string;
+};
 
-export class AcquirerService {
-  private baseUrl: string;
-  private config: AcquirerConfig;
+export type UserOperatorSettings = {
+  cielo?: OperatorSettings;
+  stone?: OperatorSettings;
+  rede?: OperatorSettings;
+};
 
-  constructor(config: AcquirerConfig) {
-    this.config = config;
-    this.baseUrl = config.environment === 'sandbox' 
-      ? 'https://api-sandbox.cielo.com.br' 
-      : 'https://api.cielo.com.br';
-  }
+// Chaves para armazenamento seguro
+const OPERATOR_SETTINGS_KEY = 'user_operator_settings';
 
-  private async getHeaders() {
-    const auth = Buffer.from(`${this.config.merchantId}:${this.config.apiKey}`).toString('base64');
-    return {
-      'Authorization': `Basic ${auth}`,
-      'Content-Type': 'application/json',
-    };
-  }
-
-  async fetchTransactions(dateRange: { startDate: string; endDate: string }): Promise<Transaction[]> {
+// Serviço de integração com adquirentes
+export const acquirerService = {
+  // Obter configurações de todas as operadoras para o usuário
+  async getUserOperatorSettings(): Promise<UserOperatorSettings> {
     try {
-      const headers = await this.getHeaders();
-      const response = await axios.get(`${this.baseUrl}/transactions`, {
-        headers,
-        params: {
-          startDate: dateRange.startDate,
-          endDate: dateRange.endDate,
-        },
-      });
-
-      return response.data.map((transaction: TransactionResponse) => ({
-        id: transaction.id,
-        amount: transaction.amount,
-        date: transaction.created_at,
-        description: `Transação ${transaction.paymentMethod}`,
-        type: transaction.paymentMethod === 'credit' ? 'credit' : 'debit',
-        status: transaction.status,
-        paymentMethod: transaction.paymentMethod,
-        installments: transaction.installments,
-        tax: transaction.tax,
-        source: 'acquirer',
-        reconciled: false,
-        created_at: transaction.created_at,
-        updatedAt: transaction.updatedAt,
-      }));
+      // Tentar buscar do armazenamento seguro primeiro
+      const storedSettings = await SecureStore.getItemAsync(OPERATOR_SETTINGS_KEY);
+      if (storedSettings) {
+        return JSON.parse(storedSettings);
+      }
+      
+      // Se não encontrar, buscar do Supabase
+      const { data, error } = await supabase
+        .from('user_operator_settings')
+        .select('operator, settings');
+      
+      if (error) throw error;
+      
+      // Transformar array em objeto
+      const settings: UserOperatorSettings = {};
+      if (data) {
+        data.forEach(item => {
+          settings[item.operator] = {
+            enabled: true,
+            ...item.settings,
+            // Não incluir credenciais sensíveis aqui
+            credentials: undefined
+          };
+        });
+      }
+      
+      // Armazenar localmente (sem credenciais sensíveis)
+      await SecureStore.setItemAsync(OPERATOR_SETTINGS_KEY, JSON.stringify(settings));
+      
+      return settings;
     } catch (error) {
-      console.error('Erro ao buscar transações da adquirente:', error);
-      throw error;
+      console.error('Error fetching operator settings:', error);
+      return {};
     }
-  }
-
-  async createTransaction(transaction: Transaction): Promise<Transaction> {
+  },
+  
+  // Salvar configurações de uma operadora
+  async saveOperatorSettings(
+    operator: string, 
+    settings: OperatorSettings
+  ): Promise<boolean> {
     try {
-      const headers = await this.getHeaders();
-      const response = await axios.post(`${this.baseUrl}/transactions`, transaction, {
-        headers,
-      });
-
-      return response.data;
-    } catch (error) {
-      console.error('Erro ao criar transação:', error);
-      throw error;
-    }
-  }
-
-  async cancelTransaction(transactionId: string): Promise<boolean> {
-    try {
-      const headers = await this.getHeaders();
-      await axios.delete(`${this.baseUrl}/transactions/${transactionId}`, {
-        headers,
-      });
+      // Extrair credenciais para armazenamento seguro separado
+      const { credentials, ...publicSettings } = settings;
+      
+      // Salvar no Supabase (sem credenciais sensíveis)
+      const { error } = await supabase
+        .from('user_operator_settings')
+        .upsert({
+          operator,
+          settings: publicSettings
+        });
+      
+      if (error) throw error;
+      
+      // Salvar credenciais localmente de forma segura
+      if (credentials) {
+        await SecureStore.setItemAsync(
+          `operator_${operator}_credentials`,
+          JSON.stringify(credentials)
+        );
+      }
+      
+      // Atualizar cache local
+      const currentSettings = await this.getUserOperatorSettings();
+      currentSettings[operator] = {
+        ...publicSettings,
+        credentials: undefined // Não incluir no cache geral
+      };
+      await SecureStore.setItemAsync(
+        OPERATOR_SETTINGS_KEY, 
+        JSON.stringify(currentSettings)
+      );
+      
       return true;
     } catch (error) {
-      console.error('Erro ao cancelar transação:', error);
+      console.error(`Error saving ${operator} settings:`, error);
+      return false;
+    }
+  },
+  
+  // Obter credenciais de uma operadora específica
+  async getOperatorCredentials(operator: string): Promise<OperatorCredentials | null> {
+    try {
+      const credentialsJson = await SecureStore.getItemAsync(`operator_${operator}_credentials`);
+      return credentialsJson ? JSON.parse(credentialsJson) : null;
+    } catch (error) {
+      console.error(`Error getting ${operator} credentials:`, error);
+      return null;
+    }
+  },
+  
+  // Buscar arquivos de conciliação
+  async getConciliationFiles(limit = 50, offset = 0) {
+    try {
+      const { data, error, count } = await supabase
+        .from('conciliation_files')
+        .select('*', { count: 'exact' })
+        .order('created_at', { ascending: false })
+        .range(offset, offset + limit - 1);
+      
+      if (error) throw error;
+      
+      return { 
+        files: data || [], 
+        total: count || 0,
+        hasMore: (count || 0) > offset + limit
+      };
+    } catch (error) {
+      console.error('Error fetching conciliation files:', error);
       throw error;
     }
-  }
-
-  async captureTransaction(transactionId: string): Promise<boolean> {
+  },
+  
+  // Buscar transações de um arquivo específico
+  async getFileTransactions(fileId: string) {
     try {
-      const headers = await this.getHeaders();
-      await axios.post(`${this.baseUrl}/transactions/${transactionId}/capture`, {}, {
-        headers,
-      });
+      const { data, error } = await supabase
+        .from('transactions')
+        .select('*')
+        .eq('conciliation_file_id', fileId)
+        .order('transaction_date', { ascending: false });
+      
+      if (error) throw error;
+      
+      return data || [];
+    } catch (error) {
+      console.error('Error fetching file transactions:', error);
+      throw error;
+    }
+  },
+  
+  // Solicitar sincronização manual de uma operadora
+  async requestManualSync(operator: string): Promise<boolean> {
+    try {
+      // Esta função poderia chamar uma API do seu backend
+      // para iniciar uma sincronização manual
+      
+      // Por enquanto, apenas simular uma atualização de status
+      const { error } = await supabase
+        .from('user_operator_settings')
+        .update({
+          settings: {
+            lastSyncRequested: new Date().toISOString()
+          }
+        })
+        .eq('operator', operator);
+      
+      if (error) throw error;
+      
       return true;
     } catch (error) {
-      console.error('Erro ao capturar transação:', error);
-      throw error;
+      console.error(`Error requesting manual sync for ${operator}:`, error);
+      return false;
     }
   }
-
-  async getTransactionStatus(transactionId: string): Promise<Transaction> {
-    try {
-      const headers = await this.getHeaders();
-      const response = await axios.get(`${this.baseUrl}/transactions/${transactionId}`, {
-        headers,
-      });
-
-      return response.data;
-    } catch (error) {
-      console.error('Erro ao buscar status da transação:', error);
-      throw error;
-    }
-  }
-}
+};

@@ -76,7 +76,11 @@ export function parseCieloEDIFile(fileContent: string, fileId: string): Normaliz
             conciliation_status: 'pending',
           });
         } catch (e) {
-          console.error(`Erro ao parsear linha tipo 'E': ${line.substring(0, 50)}... Erro: ${e.message}`);
+          if (e instanceof Error) {
+            console.error(`Erro ao parsear linha tipo 'E': ${line.substring(0, 50)}... Erro: ${e.message}`);
+          } else {
+            console.error(`Erro ao parsear linha tipo 'E': ${line.substring(0, 50)}... Erro desconhecido`, e);
+          }
           // Você pode querer registrar essas linhas com erro em algum lugar
         }
         break;
