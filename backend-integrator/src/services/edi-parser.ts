@@ -1,118 +1,136 @@
 // src/services/edi-parser.ts
-import { v4 as uuidv4 } from 'uuid'; // Para gerar IDs únicos se necessário
+import { v4 as uuidv4 } from 'uuid';
 
-// Defina a estrutura de uma transação normalizada
 interface NormalizedTransaction {
-  id: string; // UUID gerado
-  file_id: string; // ID do arquivo de conciliação
-  user_id: string; // ID do usuário associado
-  date: string; // Data da transação (ISO string)
-  amount: number; // Valor bruto
-  net_amount: number; // Valor líquido
-  fee: number; // Taxa
+  id: string;
+  file_id: string;
+  user_id: string;
+  date: string;
+  amount: number;
+  net_amount: number;
+  fee: number;
   card_brand: string;
-  card_number?: string; // Últimos 4 dígitos
-  transaction_type: string; // Débito, Crédito à Vista, Parcelado, PIX
+  card_number?: string;
+  transaction_type: string;
   installments: number;
-  payment_date: string; // Data de pagamento (ISO string)
+  payment_date: string;
   nsu: string;
   auth_code: string;
-  status: string; // Aprovada, Cancelada, etc.
-  conciliation_status: string; // pending
+  status: string;
+  conciliation_status: string;
 }
 
 export function parseCieloEDIFile(fileContent: string, fileId: string): NormalizedTransaction[] {
-  const lines = fileContent.split('\n');
+  const lines = fileContent.split(/\r?\n/);
+  console.log('Total de linhas lidas:', lines.length);
+
   const transactions: NormalizedTransaction[] = [];
-  let currentUserId = 'SEU_USER_ID_ADMIN'; // Ou extraia do Header do arquivo se disponível
+  let currentUserId = 'SEU_USER_ID_ADMIN';
 
   for (const line of lines) {
     if (line.trim() === '') continue;
 
-    const recordType = line.substring(0, 1); // O primeiro caractere indica o tipo de registro (0, D, E, 8, A, B, C, R, 9)
+    // Log visual para contagem de caracteres
+    if (line.startsWith('E')) {
+      console.log('Linha completa:', line);
+      let marcador = '';
+      for (let i = 0; i < Math.min(line.length, 100); i += 10) {
+        marcador += (i.toString().padStart(3, '0') + ' ');
+      }
+      console.log('Posições:   ', marcador);
+      let blocos = '';
+      for (let i = 0; i < Math.min(line.length, 100); i += 10) {
+        blocos += line.substring(i, i+10) + ' ';
+      }
+      console.log('Blocos:     ', blocos);
+    }
+
+    const recordType = line.substring(0, 1);
+    console.log(`Processando linha tipo '${recordType}':`, line.substring(0, 50) + '...');
 
     switch (recordType) {
-      case '0': // Header
-        // Exemplo: Extrair o ID do estabelecimento ou outras informações do header
-        // const establishmentId = line.substring(1, 11).trim();
-        // currentUserId = mapEstablishmentIdToUserId(establishmentId); // Você precisaria de uma função para mapear
-        break;
-      case 'E': // Detalhe do Lançamento (UR analítica) - Mais comum para vendas/ajustes
+      case 'E': // Registro de Detalhe da Transação
         try {
-          // **ESTE É ONDE VOCÊ VAI USAR O MANUAL DA CIELO INTENSIVAMENTE**
-          // Exemplo de extração (posições do manual):
-          const transactionDate = line.substring(566, 574); // DDMMAAAA
-          const rawAmount = line.substring(248, 261); // Valor total da venda
-          const rawNetAmount = line.substring(276, 289); // Valor líquido
-          const rawFee = line.substring(430, 443); // Valor tarifa administrativa
-          const cardBrandCode = line.substring(12, 15); // Bandeira de liquidação
-          const transactionTypeCode = line.substring(28, 30); // Tipo de lançamento
-          const nsu = line.substring(176, 182); // NSU/DOC
-          const authCode = line.substring(22, 28); // Código de autorização
-          const paymentDate = line.substring(630, 638); // Data de vencimento original
-          const installments = parseInt(line.substring(20, 22), 10); // Número total de parcelas
+          // Offsets corrigidos conforme análise visual do log
+          const establishmentCode = line.substring(1, 16).trim();
+          const nsu = line.substring(16, 28).trim();
+          const transactionDateRaw = line.substring(28, 36).trim(); // AAAAMMDD
+          const authCode = line.substring(36, 42).trim();
+          const transactionTypeCode = line.substring(42, 44).trim();
+          const paymentMethodCode = line.substring(44, 47).trim();
+          const cardBrandCode = line.substring(47, 50).trim();
+          const installments = parseInt(line.substring(50, 52).trim() || '1', 10);
+          const grossAmountRaw = line.substring(52, 65).replace(/[^\d]/g, '').trim(); // 13 caracteres
+          const netAmountRaw = line.substring(65, 78).replace(/[^\d]/g, '').trim();   // 13 caracteres
+          const feeAmountRaw = line.substring(78, 91).replace(/[^\d]/g, '').trim();   // 13 caracteres
+          const paymentDateRaw = line.substring(91, 99).trim();                        // 8 caracteres
 
-          // Mapeamento de códigos para nomes legíveis (você precisará de tabelas de mapeamento)
-          const mappedCardBrand = mapCardBrand(cardBrandCode);
-          const mappedTransactionType = mapTransactionType(transactionTypeCode);
-          const mappedStatus = 'Aprovada'; // Ou extraia do arquivo se houver um campo de status
+          // Log detalhado para debug
+          console.log({
+            transactionDateRaw,
+            grossAmountRaw,
+            netAmountRaw,
+            feeAmountRaw,
+            paymentDateRaw
+          });
+
+          // Conversão dos campos
+          const date = formatAAAAMMDDtoISODate(transactionDateRaw);
+          const payment_date = formatAAAAMMDDtoISODate(paymentDateRaw);
+          const amount = grossAmountRaw ? parseFloat(grossAmountRaw) / 100 : 0;
+          const net_amount = netAmountRaw ? parseFloat(netAmountRaw) / 100 : 0;
+          const fee = feeAmountRaw ? parseFloat(feeAmountRaw) / 100 : 0;
 
           transactions.push({
             id: uuidv4(),
             file_id: fileId,
             user_id: currentUserId,
-            date: formatDDMMAAAAtoISODate(transactionDate),
-            amount: parseFloat(rawAmount) / 100, // Dividir por 100 se o valor vier sem decimal
-            net_amount: parseFloat(rawNetAmount) / 100,
-            fee: parseFloat(rawFee) / 100,
-            card_brand: mappedCardBrand,
-            card_number: line.substring(172, 176), // Últimos 4 dígitos
-            transaction_type: mappedTransactionType,
-            installments: isNaN(installments) ? 1 : installments,
-            payment_date: formatDDMMAAAAtoISODate(paymentDate),
-            nsu: nsu,
+            date,
+            amount,
+            net_amount,
+            fee,
+            card_brand: mapCardBrand(cardBrandCode),
+            card_number: '',
+            transaction_type: mapTransactionType(transactionTypeCode),
+            installments,
+            payment_date,
+            nsu,
             auth_code: authCode,
-            status: mappedStatus,
+            status: 'Aprovada',
             conciliation_status: 'pending',
           });
         } catch (e) {
-          if (e instanceof Error) {
-            console.error(`Erro ao parsear linha tipo 'E': ${line.substring(0, 50)}... Erro: ${e.message}`);
-          } else {
-            console.error(`Erro ao parsear linha tipo 'E': ${line.substring(0, 50)}... Erro desconhecido`, e);
-          }
-          // Você pode querer registrar essas linhas com erro em algum lugar
+          console.error(`Erro ao parsear linha tipo 'E':`, e);
+          console.error('Linha com erro:', line);
         }
         break;
-      case '8': // Detalhe da Transação Pix
-        // Implemente a lógica de parsing para transações Pix aqui
-        // Similar ao caso 'E', mas com campos específicos do Registro 8
+
+      case '0': // Header
+        console.log('Header encontrado');
         break;
-      // Adicione outros tipos de registro (D, A, B, C, R) conforme a necessidade de conciliação
+
       case '9': // Trailer
-        // Exemplo: Validar somatórias do arquivo com o que foi processado
-        // const totalTransactionsInFile = parseInt(line.substring(1, 12).trim(), 10);
-        // if (transactions.length !== totalTransactionsInFile) {
-        //   console.warn(`Contagem de transações no arquivo (${totalTransactionsInFile}) difere do parseado (${transactions.length})`);
-        // }
+        console.log('Trailer encontrado');
         break;
+
       default:
-        // console.log(`Tipo de registro desconhecido ou não processado: ${recordType}`);
+        console.log(`Tipo de registro não processado: ${recordType}`);
         break;
     }
   }
+
+  console.log(`Total de transações processadas: ${transactions.length}`);
   return transactions;
 }
 
-// Funções auxiliares de mapeamento e formatação (você precisará criar tabelas de mapeamento)
+// Funções auxiliares
 function mapCardBrand(code: string): string {
   const brands: { [key: string]: string } = {
-    '001': 'Visa',
-    '002': 'Mastercard',
-    '003': 'American Express',
-    '007': 'Elo',
-    '888': 'Pix', // Pix é uma "bandeira" no contexto da Cielo para transações Pix
-    // Adicione outros códigos de bandeira do manual
+    '082': 'Visa',
+    '164': 'Mastercard',
+    '033': 'American Express',
+    '282': 'Elo',
+    '888': 'PIX',
   };
   return brands[code] || `Desconhecida (${code})`;
 }
@@ -121,21 +139,19 @@ function mapTransactionType(code: string): string {
   const types: { [key: string]: string } = {
     '01': 'Débito',
     '02': 'Crédito à Vista',
-    '03': 'Crédito Parcelado',
-    '04': 'Ajuste a Débito',
-    '05': 'Ajuste a Crédito',
-    '06': 'Cancelamento de Venda',
-    '08': 'Contestação',
-    '42': 'Venda Voucher',
-    // Adicione outros códigos de tipo de lançamento do manual
+    '03': 'Crédito Parcelado Loja',
+    '04': 'Crédito Parcelado Emissor',
+    '30': 'Débito',
+    '20': 'Crédito',
   };
   return types[code] || `Desconhecido (${code})`;
 }
 
-function formatDDMMAAAAtoISODate(ddmmaaaa: string): string {
-  if (ddmmaaaa.length !== 8) return '';
-  const day = ddmmaaaa.substring(0, 2);
-  const month = ddmmaaaa.substring(2, 4);
-  const year = ddmmaaaa.substring(4, 8);
-  return `${year}-${month}-${day}T00:00:00Z`; // Formato ISO 8601 UTC
+function formatAAAAMMDDtoISODate(aaaammdd: string): string {
+  // Exemplo: '20241218' => '2024-12-18T00:00:00Z'
+  if (!aaaammdd || aaaammdd.length !== 8) return '';
+  const aaaa = aaaammdd.substring(0, 4);
+  const mm = aaaammdd.substring(4, 6);
+  const dd = aaaammdd.substring(6, 8);
+  return `${aaaa}-${mm}-${dd}T00:00:00Z`;
 }

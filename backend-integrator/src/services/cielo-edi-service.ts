@@ -8,6 +8,7 @@ import { parseCieloEDIFile } from './edi-parser';
 import { NormalizedTransaction } from '../models/transaction';
 import { FileMetadata } from '../models/file-metadata';
 import * as config from 'config';
+import logger from '../utils/logger';
 
 export class CieloEdiService {
   private client: SFTPClient;
@@ -40,10 +41,10 @@ export class CieloEdiService {
   async connect() {
     try {
       await this.client.connect(this.config);
-      console.log('Connected to Cielo SFTP');
+      logger.info('Connected to Cielo SFTP');
       return true;
     } catch (error) {
-      console.error('Failed to connect to Cielo SFTP:', error);
+      logger.error('Failed to connect to Cielo SFTP:', error);
       return false;
     }
   }
@@ -51,9 +52,9 @@ export class CieloEdiService {
   async disconnect() {
     try {
       await this.client.disconnect();
-      console.log('Disconnected from Cielo SFTP');
+      logger.info('Disconnected from Cielo SFTP');
     } catch (error) {
-      console.error('Failed to disconnect from Cielo SFTP:', error);
+      logger.error('Failed to disconnect from Cielo SFTP:', error);
     }
   }
 
@@ -65,7 +66,7 @@ export class CieloEdiService {
       
       // Listar arquivos no diretório remoto
       const files: SFTPFile[] = await this.client.list(this.config.remotePath);
-      console.log(`Found ${files.length} files on Cielo SFTP`);
+      logger.info(`Found ${files.length} files on Cielo SFTP`);
       
       // Filtrar apenas arquivos EDI não processados
       const ediFiles = files.filter(file => 
@@ -84,23 +85,23 @@ export class CieloEdiService {
         
         // Se o arquivo já foi processado, pular
         if (data) {
-          console.log(`File ${file.name} already processed, skipping`);
+          logger.info(`File ${file.name} already processed, skipping`);
           continue;
         }
         
         // Baixar e processar o arquivo
-        console.log(`Downloading file ${file.name}`);
+        logger.info(`Downloading file ${file.name}`);
         const fileContent = await this.client.get(`${this.config.remotePath}/${file.name}`);
         
         // Processar o arquivo
         await this.processFile(fileContent.toString(), file.name, userId);
         
-        console.log(`Successfully processed file ${file.name}`);
+        logger.info(`Successfully processed file ${file.name}`);
       }
       
       await this.client.disconnect();
     } catch (error) {
-      console.error('Error fetching Cielo files:', error);
+      logger.error('Error fetching Cielo files:', error);
     }
   }
 
@@ -151,7 +152,7 @@ export class CieloEdiService {
 
       return { success: true, count: transactions.length };
     } catch (error) {
-      console.error('Error processing Cielo file:', error);
+      logger.error('Error processing Cielo file:', error);
       
       // Atualizar status do arquivo para erro
       if (fileRecord?.id) {

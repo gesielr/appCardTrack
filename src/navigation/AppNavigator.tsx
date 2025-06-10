@@ -15,6 +15,7 @@ import PaymentScreen from '../screens/PaymentScreen'; // Nova tela de Pagamentos
 import TransactionsScreen from '../screens/TransactionsScreen'; // Nova tela de Transações
 import ReconciliationScreen from '../screens/ReconciliationScreen'; // Nova tela de Conciliação
 import PaymentLinksScreen from '../screens/PaymentLinksScreen'; // Tela de Links de Pagamento
+import EdiTransactionsScreen from '../screens/EdiTransactionsScreen'; // Tela de Teste EDI
 
 // Telas do Stack acessadas pelo Dashboard
 import ImportScreen from '../components/Import/ImportScreen';
@@ -59,6 +60,7 @@ const TabNavigator = () => {
       <Tab.Screen name="Pagamentos" component={PaymentScreen} options={{ title: 'Pagamentos' }} />
       <Tab.Screen name="Transacoes" component={TransactionsScreen} options={{ title: 'Transações' }} />
       <Tab.Screen name="Conciliacao" component={ReconciliationScreen} options={{ title: 'Conciliação' }} />
+      <Tab.Screen name="EdiTeste" component={EdiTransactionsScreen} options={{ title: 'EDI Teste' }} />
     </Tab.Navigator>
   );
 };
