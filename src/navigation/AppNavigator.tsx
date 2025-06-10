@@ -1,30 +1,28 @@
 import React from 'react';
 import { StyleSheet } from 'react-native';
-import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { RouteProp } from '@react-navigation/core'; // Reverted to @react-navigation/core
+import { createBottomTabNavigator, BottomTabScreenProps } from '@react-navigation/bottom-tabs';
 import { createStackNavigator } from '@react-navigation/stack';
 import { Ionicons } from '@expo/vector-icons';
 
 import { supabase } from '../lib/supabase';
-import { RootStackParamList, TabParamList } from '../types'; // Importando tipos globais
+import { RootStackParamList, TabParamList } from '../types';
 
 // Screens
 import AuthScreen from '../screens/AuthScreen';
 import HomeScreen from '../screens/HomeScreen';
-import PaymentScreen from '../screens/PaymentScreen'; // Nova tela de Pagamentos
-import TransactionsScreen from '../screens/TransactionsScreen'; // Nova tela de Transações
-import ReconciliationScreen from '../screens/ReconciliationScreen'; // Nova tela de Conciliação
-import PaymentLinksScreen from '../screens/PaymentLinksScreen'; // Tela de Links de Pagamento
-import EdiTransactionsScreen from '../screens/EdiTransactionsScreen'; // Tela de Teste EDI
+import PaymentScreen from '../screens/PaymentScreen';
+import TransactionsScreen from '../screens/TransactionsScreen';
+import ReconciliationScreen from '../screens/ReconciliationScreen';
+import PaymentLinksScreen from '../screens/PaymentLinksScreen';
+import EdiTransactionsScreen from '../screens/EdiTransactionsScreen';
 
-// Telas do Stack acessadas pelo Dashboard
+// Stack screens
 import ImportScreen from '../components/Import/ImportScreen';
 import NotificationScreen from '../components/Notifications/NotificationScreen';
 import ReportsScreen from '../components/Reports/ReportsScreen';
-// import WhatsAppIntegration from '../components/WhatsApp/WhatsAppIntegration'; // Comentado se não for usado agora
 
-const Tab = createBottomTabNavigator(); // <TabParamList> removido temporariamente para diagnóstico
-const RootStack = createStackNavigator(); // <RootStackParamList> removido temporariamente para diagnóstico
+const Tab = createBottomTabNavigator<TabParamList>();
+const RootStack = createStackNavigator<RootStackParamList>();
 
 const styles = StyleSheet.create({
   tabBar: {
@@ -32,22 +30,30 @@ const styles = StyleSheet.create({
   },
 });
 
-const TabNavigator = () => {
+const TabNavigator: React.FC = () => {
   return (
     <Tab.Navigator
-      screenOptions={({ route }: { route: RouteProp<TabParamList, keyof TabParamList> }) => ({
+      screenOptions={({ route }: { route: { name: keyof TabParamList } }) => ({
         tabBarStyle: styles.tabBar,
         tabBarIcon: ({ focused, color, size }: { focused: boolean; color: string; size: number }) => {
-          let iconName: keyof typeof Ionicons.glyphMap = 'alert-circle-outline'; // Ícone padrão
+          let iconName: keyof typeof Ionicons.glyphMap = 'alert-circle-outline';
 
-          if (route.name === 'Home') {
-            iconName = focused ? 'home' : 'home-outline';
-          } else if (route.name === 'Pagamentos') {
-            iconName = focused ? 'card' : 'card-outline';
-          } else if (route.name === 'Transacoes') {
-            iconName = focused ? 'list' : 'list-outline';
-          } else if (route.name === 'Conciliacao') {
-            iconName = focused ? 'swap-horizontal' : 'swap-horizontal-outline';
+          switch (route.name) {
+            case 'Home':
+              iconName = focused ? 'home' : 'home-outline';
+              break;
+            case 'Pagamentos':
+              iconName = focused ? 'card' : 'card-outline';
+              break;
+            case 'Transacoes':
+              iconName = focused ? 'list' : 'list-outline';
+              break;
+            case 'Conciliacao':
+              iconName = focused ? 'swap-horizontal' : 'swap-horizontal-outline';
+              break;
+            case 'EdiTeste':
+              iconName = focused ? 'code-slash' : 'code-slash-outline';
+              break;
           }
 
           return <Ionicons name={iconName} size={size} color={color} />;
@@ -65,10 +71,26 @@ const TabNavigator = () => {
   );
 };
 
-const AppNavigator = () => {
-  const [isAuthenticated, setIsAuthenticated] = React.useState(false);
+const AppNavigator: React.FC = () => {
+  const [isAuthenticated, setIsAuthenticated] = React.useState<boolean>(false);
 
   React.useEffect(() => {
+    // Verificação inicial do usuário
+    const checkInitialAuth = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        console.log('AppNavigator User (initial check):', user);
+        setIsAuthenticated(!!user);
+        console.log('AppNavigator isAuthenticated (initial check):', !!user);
+      } catch (error) {
+        console.error('AppNavigator Auth Error (initial check):', error);
+        setIsAuthenticated(false);
+      }
+    };
+
+    checkInitialAuth();
+
+    // Listener para mudanças de autenticação
     const { data: authListener } = supabase.auth.onAuthStateChange(
       (_event, session) => {
         const user = session?.user;
@@ -78,27 +100,17 @@ const AppNavigator = () => {
       }
     );
 
-    // Verifica o usuário inicial
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      if (!authListener) { // Apenas se o listener não tiver atualizado ainda
-        console.log('AppNavigator User (initial check):', user);
-        setIsAuthenticated(!!user);
-        console.log('AppNavigator isAuthenticated (initial check):', !!user);
-      }
-    }).catch(error => {
-      console.error('AppNavigator Auth Error (initial check):', error);
-      setIsAuthenticated(false);
-    });
-
     return () => {
-      authListener?.subscription.unsubscribe();
+      if (authListener?.subscription) {
+        authListener.subscription.unsubscribe();
+      }
     };
   }, []);
 
   return (
     <RootStack.Navigator>
       {isAuthenticated ? (
-        <>
+        <React.Fragment>
           <RootStack.Screen
             name="Tabs"
             component={TabNavigator}
@@ -112,8 +124,7 @@ const AppNavigator = () => {
             component={PaymentLinksScreen} 
             options={{ title: 'Links de Pagamento' }} 
           />
-          {/* Adicione outras telas do Stack principal aqui, se necessário */}
-        </>
+        </React.Fragment>
       ) : (
         <RootStack.Screen
           name="Auth"

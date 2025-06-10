@@ -7,6 +7,7 @@ export type RootStackParamList = {
   Importar: undefined; // Tela de Importação
   Notificacoes: undefined; // Tela de Notificações
   Relatorios: undefined; // Tela de Relatórios
+  PaymentLinks: undefined; // ❌ ESTA ROTA ESTAVA FALTANDO TAMBÉM!
   // Adicione outras rotas do Stack aqui se houver
 };
 
@@ -16,6 +17,7 @@ export type TabParamList = {
   Pagamentos: undefined; // Aba de Pagamentos
   Transacoes: { conciliationFileId: string } | undefined; // Aba de Transações com parâmetro opcional
   Conciliacao: undefined; // Nova aba de Conciliação Bancária
+  EdiTeste: undefined; // ✅ ADICIONADA - Aba de Teste EDI
   // Se uma aba precisar de parâmetros, defina-os aqui
 };
 
