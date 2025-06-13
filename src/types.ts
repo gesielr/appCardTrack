@@ -7,7 +7,15 @@ export type RootStackParamList = {
   Importar: undefined; // Tela de Importação
   Notificacoes: undefined; // Tela de Notificações
   Relatorios: undefined; // Tela de Relatórios
-  PaymentLinks: undefined; // ❌ ESTA ROTA ESTAVA FALTANDO TAMBÉM!
+  PaymentLinks: undefined; // Tela de Links de Pagamento
+  ProfileScreen: undefined; // Tela de Perfil do Usuário
+  OperatorSettingsScreen: undefined; // Tela de Configurações do Operador
+  SalesReport: undefined; // Tela de Relatório de Vendas
+  BankReconciliation: undefined; // Tela de Conciliação Bancária
+  DetailedReport: undefined;
+  TaxReport: undefined;
+  InstallmentReport: undefined;
+  EDIImport: undefined; // Tela de Importação de EDI
   // Adicione outras rotas do Stack aqui se houver
 };
 
@@ -82,4 +90,55 @@ export interface PaymentLink {
   // Adicione outros campos conforme necessário
 }
 
+export interface CieloEDIData {
+  establishmentCode: string;
+  date: string;
+  transactions: CieloTransaction[];
+  summary: CieloSummary;
+}
+
+export interface CieloTransaction {
+  id: string;
+  date: string;
+  time: string;
+  cardBrand: string;
+  authorizationCode: string;
+  nsu: string;
+  grossAmount: number;
+  netAmount: number;
+  fee: number;
+  installments: number;
+  transactionType: 'credit' | 'debit' | 'pix';
+  status: 'approved' | 'cancelled' | 'pending';
+}
+
+export interface CieloSummary {
+  totalTransactions: number;
+  grossAmount: number;
+  netAmount: number;
+  totalFees: number;
+  creditTransactions: number;
+  debitTransactions: number;
+  pixTransactions: number;
+}
+
+export interface BankStatement {
+  id: string;
+  date: string;
+  description: string;
+  amount: number;
+  balance: number;
+  type: 'credit' | 'debit';
+  reference?: string;
+}
+
+export interface ReconciliationResult {
+  id: string;
+  bankTransactionId: string;
+  cieloTransactionId: string;
+  status: 'matched' | 'divergent' | 'missing';
+  difference?: number;
+  notes?: string;
+  reconciledAt: string;
+}
 // Você pode adicionar outras interfaces e tipos globais aqui

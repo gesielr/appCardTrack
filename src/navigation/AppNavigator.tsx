@@ -1,25 +1,31 @@
 import React from 'react';
 import { StyleSheet } from 'react-native';
-import { createBottomTabNavigator, BottomTabScreenProps } from '@react-navigation/bottom-tabs';
+import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createStackNavigator } from '@react-navigation/stack';
 import { Ionicons } from '@expo/vector-icons';
-
 import { supabase } from '../lib/supabase';
 import { RootStackParamList, TabParamList } from '../types';
 
 // Screens
 import AuthScreen from '../screens/AuthScreen';
+import EDIImportScreen from '../screens/EDIImportScreen';
 import HomeScreen from '../screens/HomeScreen';
 import PaymentScreen from '../screens/PaymentScreen';
 import TransactionsScreen from '../screens/TransactionsScreen';
 import ReconciliationScreen from '../screens/ReconciliationScreen';
 import PaymentLinksScreen from '../screens/PaymentLinksScreen';
 import EdiTransactionsScreen from '../screens/EdiTransactionsScreen';
+import SalesReportScreen from '../screens/SalesReportScreen';
+import BankReconciliationScreen from '../screens/BankReconciliationScreen';
+import ProfileScreen from '../screens/ProfileScreen';
+import OperatorSettingsScreen from '../screens/OperatorSettingsScreen';
+
 
 // Stack screens
 import ImportScreen from '../components/Import/ImportScreen';
 import NotificationScreen from '../components/Notifications/NotificationScreen';
 import ReportsScreen from '../components/Reports/ReportsScreen';
+
 
 const Tab = createBottomTabNavigator<TabParamList>();
 const RootStack = createStackNavigator<RootStackParamList>();
@@ -116,13 +122,50 @@ const AppNavigator: React.FC = () => {
             component={TabNavigator}
             options={{ headerShown: false }}
           />
-          <RootStack.Screen name="Importar" component={ImportScreen} />
-          <RootStack.Screen name="Notificacoes" component={NotificationScreen} />
-          <RootStack.Screen name="Relatorios" component={ReportsScreen} />
+          <RootStack.Screen 
+            name="Importar" 
+            component={ImportScreen}
+            options={{ title: 'Importar Dados' }}
+          />
+          <RootStack.Screen 
+            name="Notificacoes" 
+            component={NotificationScreen}
+            options={{ title: 'Notificações' }}
+          />
+          <RootStack.Screen 
+            name="Relatorios" 
+            component={ReportsScreen}
+            options={{ title: 'Relatórios' }}
+          />
+          <RootStack.Screen 
+            name="EDIImport" 
+            component={EDIImportScreen}
+            options={{ title: 'Importar EDI' }}
+          />
           <RootStack.Screen 
             name="PaymentLinks" 
             component={PaymentLinksScreen} 
             options={{ title: 'Links de Pagamento' }} 
+          />
+          <RootStack.Screen 
+            name="ProfileScreen" 
+            component={ProfileScreen}
+            options={{ title: 'Perfil' }}
+          />
+          <RootStack.Screen 
+            name="OperatorSettingsScreen" 
+            component={OperatorSettingsScreen}
+            options={{ title: 'Configurações do Operador' }}
+          />
+          <RootStack.Screen 
+            name="SalesReport" 
+            component={SalesReportScreen}
+            options={{ title: 'Relatório de Vendas' }}
+          />
+          <RootStack.Screen 
+            name="BankReconciliation" 
+            component={BankReconciliationScreen}
+            options={{ title: 'Conciliação Bancária' }}
           />
         </React.Fragment>
       ) : (
@@ -131,6 +174,7 @@ const AppNavigator: React.FC = () => {
           component={AuthScreen}
           options={{ headerShown: false }}
         />
+        
       )}
     </RootStack.Navigator>
   );

@@ -1,9 +1,11 @@
 import express from 'express';
+import cors from 'cors';
 import fs from 'fs';
 import path from 'path';
-import { parseCieloEDIFile } from './services/edi-parser';
+import { EDIParser } from './services/edi-parser';
 
 const app = express();
+app.use(cors()); // Habilita o CORS para todas as rotas
 const PORT = process.env.PORT || 3001;
 
 // Endpoint para parsear e retornar os dados do arquivo EDI
@@ -19,8 +21,8 @@ app.get('/api/parse-arquivo/:nomeArquivo', function (req, res) {
 
   try {
     const fileContent = fs.readFileSync(filePath, 'utf-8');
-    const transactions = parseCieloEDIFile(fileContent, nomeArquivo);
-    return res.json({ transactions });
+    const parsed = EDIParser.parseEDIFile(fileContent);
+    return res.json({ transactions: parsed.transactions });
   } catch (error) {
     return res.status(500).json({ error: 'Erro ao processar o arquivo', details: error instanceof Error ? error.message : error });
   }
